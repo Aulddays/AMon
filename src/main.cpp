@@ -1,14 +1,24 @@
 #include <stdio.h>
 #include "CollectdReceiver.h"
 #include "GrafanaReader.h"
+#include "Alog.h"
 
-std::vector<std::unique_ptr<Worker>> workers;
+asio::io_service ioService;
+
+void sighdl(int code)
+{
+	if (code == SIGINT || code == SIGTERM || code == SIGABRT)
+	{
+		PELOG_LOG((PLV_INFO, "Stopping\n"));
+		ioService.stop();
+	}
+}
 
 int main()
 {
-	asio::io_service ioService;
 	AMon amon;
 	amon.start();
+	std::vector<std::unique_ptr<Worker>> workers;
 //	std::unique_ptr<Worker> collectd = CollectdReceiver::byConfig(ioService, "conf/types.db", amon.gettaskq());
 //	workers.push_back(std::move(collectd));
 	std::unique_ptr<Worker> grafana = GrafanaReader::byConfig(ioService, amon.gettaskq());
@@ -17,6 +27,12 @@ int main()
 	{
 		worker->start();
 	}
+
+	signal(SIGINT, sighdl);
+	signal(SIGTERM, sighdl);
+	signal(SIGABRT, sighdl);
+	signal(SIGUSR1, sighdl);
+
 	ioService.run();
 	amon.stop();
 

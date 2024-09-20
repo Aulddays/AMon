@@ -10,6 +10,11 @@ int AMon::start()
 
 int AMon::stop()
 {
+	if (!mainthrd.joinable())
+		return -1;
+	PELOG_LOG((PLV_INFO, "AMon job to stop\n"));
+	taskq.put(std::make_unique<TaskStop>());
+	mainthrd.join();
 	return 0;
 }
 

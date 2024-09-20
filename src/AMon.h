@@ -11,6 +11,10 @@
 #include <vector>
 #include "pe_log.h"
 
+// common defs
+#define AMON_MINSTEP 5
+enum StoreType { AMON_AUINT, AMON_FP16 };
+
 //////// messaging between workers ///////
 // task base
 struct Task
