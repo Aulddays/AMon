@@ -69,7 +69,6 @@ public:
 	}
 	static uint32_t toint(uint16_t rawau) { return rawau == AU_NAN ? 0 : (rawau & ((1 << AU_BASE) - 1)) << (rawau >> AU_BASE); }
 
-
 private:
 	uint16_t data;
 };

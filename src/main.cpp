@@ -19,8 +19,8 @@ int main()
 	AMon amon;
 	amon.start();
 	std::vector<std::unique_ptr<Worker>> workers;
-//	std::unique_ptr<Worker> collectd = CollectdReceiver::byConfig(ioService, "conf/types.db", amon.gettaskq());
-//	workers.push_back(std::move(collectd));
+	std::unique_ptr<Worker> collectd = CollectdReceiver::byConfig(ioService, "conf/types.db", amon.gettaskq());
+	workers.push_back(std::move(collectd));
 	std::unique_ptr<Worker> grafana = GrafanaReader::byConfig(ioService, amon.gettaskq());
 	workers.push_back(std::move(grafana));
 	for (const auto &worker: workers)

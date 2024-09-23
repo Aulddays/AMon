@@ -33,7 +33,7 @@ void AMon::mainproc()
 		case Task::TT_WRITE:
 		{
 			TaskWrite *task = (TaskWrite *)t.get();
-			if (task->process() != 0)
+			if (task->process(this) != 0)
 				PELOG_LOG((PLV_WARNING, "AMon process write failed\n"));
 			break;
 		}
@@ -79,5 +79,16 @@ int AMon::readdata(TaskRead *task)
 		}
 	}
 	return 0;
+}
+
+int AMon::addv(const char *name, uint32_t time, double value, StoreType type)
+{
+	auto ilog = data.find(name);
+	if (ilog == data.end())
+	{
+		ilog = data.emplace(name, std::make_unique<Alog>()).first;
+		ilog->second->init(datadir.c_str(), name, type);
+	}
+	return ilog->second->addv(time, value, type);
 }
 

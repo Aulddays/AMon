@@ -12,6 +12,8 @@
 //    ResGuard<FILE> fp1 = fopen(...);
 //    FILEGuard fp2 = fopen(...);
 
+#pragma once
+
 #include <stdio.h>
 
 // default deleter types for ResGuard

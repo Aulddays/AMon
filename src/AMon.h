@@ -9,12 +9,15 @@
 #include <assert.h>
 #include <new>
 #include <vector>
+#include <unordered_map>
 #include "pe_log.h"
 
 // common defs
 #define AMON_MINSTEP 5
 enum StoreType { AMON_AUINT, AMON_FP16 };
+class AMon;
 
+#include "Alog.h"
 //////// messaging between workers ///////
 // task base
 struct Task
@@ -32,7 +35,7 @@ struct Task
 // write task
 struct TaskWrite: public Task
 {
-	std::function<int (const uint8_t *data, size_t size)> processor;
+	std::function<int (const uint8_t *data, size_t size, AMon *amon)> processor;
 	size_t dsize = 0;	// size of `data`
 	uint8_t data[];
 	static std::unique_ptr<TaskWrite> alloc(size_t dsize)
@@ -42,7 +45,7 @@ struct TaskWrite: public Task
 		p->dsize = dsize;
 		return std::unique_ptr<TaskWrite>(p);
 	}
-	int process() { return processor(data, dsize); }
+	int process(AMon *amon) { return processor(data, dsize, amon); }
 protected:
 	TaskWrite() { type = TT_WRITE; /*fprintf(stderr, "ctor TaskWrite %p\n", this);*/ }
 };
@@ -152,9 +155,12 @@ public:
 	int stop();
 	int start();
 	TaskQueue *gettaskq() { return &taskq; }
+	int addv(const char *name, uint32_t time, double value, StoreType type);
 private:
+	std::string datadir = "data";
 	TaskQueue taskq;
 	std::thread mainthrd;
+	std::unordered_map<std::string, std::unique_ptr<Alog>> data;
 private:
 	void mainproc();
 	int readdata(TaskRead *task);

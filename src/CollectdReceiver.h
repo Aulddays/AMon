@@ -34,14 +34,13 @@ private:
 	CollectdReceiver(asio::io_service &ioService):
 		m_ioService(ioService), m_buf(1452), m_socket(m_ioService, asio::ip::udp::v6()) { }
 	int init(const char *typesdbfile, TaskQueue *taskq);
-	int parse(const uint8_t *data, size_t size);
+	int parse(const uint8_t *data, size_t size, AMon *amon);
 private:
 	const char *m_name = "CollectdReceiver";
 	asio::io_service &m_ioService;
 	asio::ip::udp::socket m_socket;
 	asio::ip::udp::endpoint m_remote;
 	std::vector<uint8_t> m_buf;
-	enum StoreType { ST_AUINT, ST_FP16 };
 	// types.db
 	struct TypesdbVal
 	{
@@ -62,5 +61,5 @@ private:
 private:
 	int recv();
 	void onRecv(const asio::error_code& error, size_t size);
-	int process(struct CollectdRec &rec);
+	int process(struct CollectdRec &rec, AMon *amon);
 };

@@ -3,6 +3,7 @@
 #include <map>
 #include <set>
 #include "resguard.h"
+#include "AMon.h"
 
 int CollectdReceiver::start()
 {
@@ -48,7 +49,7 @@ void CollectdReceiver::onRecv(const asio::error_code& error, size_t size)
 		PELOG_LOG((PLV_VERBOSE, "[%s] Got packet from %s:%d size " PL_SIZET "\n", m_name,
 			addrs.c_str(), (int)m_remote.port(), size));
 		std::unique_ptr<TaskWrite> dwrite = TaskWrite::alloc(size);
-		dwrite->processor = std::bind(&CollectdReceiver::parse, this, std::placeholders::_1, std::placeholders::_2);
+		dwrite->processor = std::bind(&CollectdReceiver::parse, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 		memcpy(dwrite->data, &m_buf[0], size);
 		taskq->put(std::move(dwrite));
 		//parse(&m_buf[0], size);
@@ -139,7 +140,7 @@ struct CollectdRec
 #define TYPE_SIGN_SHA256 0x0200
 #define TYPE_ENCR_AES256 0x0210
 
-int CollectdReceiver::parse(const uint8_t *data, size_t size)
+int CollectdReceiver::parse(const uint8_t *data, size_t size, AMon *amon)
 {
 	CollectdRec rec;
 	PELOG_LOG((PLV_DEBUG, "to parse packet size %d\n", size));
@@ -206,15 +207,15 @@ int CollectdReceiver::parse(const uint8_t *data, size_t size)
 			continue;
 
 		// process the values
-		{	// DEBUG log
-			char valbuf[1024] = { 0 };
-			for (size_t i = 0, valplen = 0; i < rec.values.size() && valplen + 4 < 1024; ++i)
-				valplen += snprintf(valbuf + valplen, 1024 - valplen, "%s%.1f", i == 0 ? "" : ", ", rec.values[i]);
-			PELOG_LOG((PLV_INFO, "PARSE value %u(%llu) %s.%s.%s.%s.%s: %s\n",
-					   rec.time, fmttime(rec.time), rec.host.c_str(), rec.plugin.c_str(), rec.instance.c_str(),
-					   rec.type.c_str(), rec.subtype.c_str(), valbuf));
-		}
-		process(rec);
+//		{	// DEBUG log
+//			char valbuf[1024] = { 0 };
+//			for (size_t i = 0, valplen = 0; i < rec.values.size() && valplen + 4 < 1024; ++i)
+//				valplen += snprintf(valbuf + valplen, 1024 - valplen, "%s%.1f", i == 0 ? "" : ", ", rec.values[i]);
+//			PELOG_LOG((PLV_INFO, "PARSE value %u(%llu) %s.%s.%s.%s.%s: %s\n",
+//					   rec.time, fmttime(rec.time), rec.host.c_str(), rec.plugin.c_str(), rec.instance.c_str(),
+//					   rec.type.c_str(), rec.subtype.c_str(), valbuf));
+//		}
+		process(rec, amon);
 	}
 
 	return 0;
@@ -302,7 +303,7 @@ int CollectdReceiver::init(const char *typesdbfile, TaskQueue *taskq)
 				PELOG_LOG((PLV_WARNING, "types.db unsupported range %s\n", key.c_str()));
 				break;
 			}
-			StoreType stype = minv < 0 || (*p != 'U' && maxv <= 1000) ? ST_FP16 : ST_AUINT;
+			StoreType stype = minv < 0 || (*p != 'U' && maxv <= 1000) ? AMON_FP16 : AMON_AUINT;
 			p = *pe == ',' ? pe + 1 : pe;
 			values.emplace_back(TypesdbVal{valname, type, stype});
 			//PELOG_LOG((PLV_DEBUG, "%s: %s %d %d\n", key.c_str(), valname, type, stype));
@@ -335,7 +336,7 @@ int CollectdReceiver::init(const char *typesdbfile, TaskQueue *taskq)
 	return 0;
 }
 
-int CollectdReceiver::process(struct CollectdRec &rec)
+int CollectdReceiver::process(struct CollectdRec &rec, AMon *amon)
 {
 	static const std::set<std::tuple<std::string, std::string, std::string>> accepted = {
 		std::make_tuple("interface", "if_octets", ""),
@@ -403,25 +404,27 @@ int CollectdReceiver::process(struct CollectdRec &rec)
 				++bufidx;
 			if (bufidx < HISTLEN && bufval[bufidx].time == time)	// already got the same value
 				continue;
-			--bufidx;
+			--bufidx;	// now bufidx is the last idx in bufval who is erlier than the new value
 			assert(bufval[bufidx].time < time && bufval[bufidx].time % DATAINTERVAL == 0 && time % DATAINTERVAL == 0);
-			if (time - bufval[bufidx].time <= 60 && bufval[bufidx].val <= value)
+			if (time - bufval[bufidx].time <= 60 && bufval[bufidx].val <= value)	// update bufval[bufidx] ~ time
 			{
 				double avg = (value - bufval[bufidx].val) / (time - bufval[bufidx].time);
 				for (uint32_t steptime = bufval[bufidx].time + DATAINTERVAL; steptime <= time; steptime += DATAINTERVAL)
 				{
-					PELOG_LOG((PLV_WARNING, "CollectdReceiver ADD value %s %llu %.3f\n", name.c_str(), fmttime(steptime), avg));
-					// TODO: ADD
+					PELOG_LOG((PLV_VERBOSE, "CollectdReceiver ADD value %s %llu %.3f\n", name.c_str(), fmttime(steptime), avg));
+					if (amon->addv(name.c_str(), steptime, avg, typedb[ival].stype) != 0)
+						PELOG_LOG((PLV_WARNING, "CollectdReceiver ADD value failed %s %llu %.3f\n", name.c_str(), fmttime(steptime), avg));
 				}
 			}
 			assert(bufidx == HISTLEN - 1 || bufval[bufidx + 1].time > time && bufval[bufidx + 1].time % DATAINTERVAL == 0);
-			if (bufidx < HISTLEN - 1 && bufval[bufidx + 1].time - time <= 60 && value <= bufval[bufidx + 1].val)
+			if (bufidx < HISTLEN - 1 && bufval[bufidx + 1].time - time <= 60 && value <= bufval[bufidx + 1].val)	// update time ~ bufval[bufidx + 1]
 			{
 				double avg = (bufval[bufidx + 1].val - value) / (bufval[bufidx + 1].time - time);
 				for (uint32_t steptime = time + DATAINTERVAL; steptime <= bufval[bufidx + 1].time; steptime += DATAINTERVAL)
 				{
-					PELOG_LOG((PLV_WARNING, "CollectdReceiver ADD value %s %llu %.3f\n", name.c_str(), fmttime(steptime), avg));
-					// TODO: ADD
+					PELOG_LOG((PLV_VERBOSE, "CollectdReceiver ADD value %s %llu %.3f\n", name.c_str(), fmttime(steptime), avg));
+					if (amon->addv(name.c_str(), steptime, avg, typedb[ival].stype) != 0)
+						PELOG_LOG((PLV_WARNING, "CollectdReceiver ADD value failed %s %llu %.3f\n", name.c_str(), fmttime(steptime), avg));
 				}
 			}
 			// add the new value to buffer
@@ -431,7 +434,9 @@ int CollectdReceiver::process(struct CollectdRec &rec)
 		}	// if (rec.type == DERIVE)	// DERIVE: cumulative -> average
 		else
 		{
-			PELOG_LOG((PLV_WARNING, "CollectdReceiver ADD value %s %llu %.3f\n", name.c_str(), fmttime(time), value));
+			PELOG_LOG((PLV_VERBOSE, "CollectdReceiver ADD value %s %llu %.3f\n", name.c_str(), fmttime(time), value));
+			if (amon->addv(name.c_str(), time, value, typedb[ival].stype) != 0)
+				PELOG_LOG((PLV_WARNING, "CollectdReceiver ADD value failed %s %llu %.3f\n", name.c_str(), fmttime(time), value));
 		}
 	}
 
