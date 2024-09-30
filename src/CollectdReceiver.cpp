@@ -12,7 +12,7 @@ int CollectdReceiver::start()
 	asio::error_code ec;
 	m_socket.set_option(asio::socket_base::reuse_address(true));
 	m_socket.set_option(asio::ip::v6_only(false));
-	if (m_socket.bind(asio::ip::udp::endpoint(asio::ip::udp::v6(), 25827), ec))
+	if (m_socket.bind(asio::ip::udp::endpoint(asio::ip::udp::v6(), port), ec))
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] UDP bind failed: %s\n",
 		m_name, ec.message().c_str()), ec.value());
 	int res = 0;
@@ -30,7 +30,6 @@ int CollectdReceiver::stop()
 
 int CollectdReceiver::recv()
 {
-	fprintf(stderr, "recv\n");
 	m_remote = asio::ip::udp::endpoint();	// clear remote
 	m_buf.resize(std::max((size_t)1452, m_buf.size()));
 	m_socket.async_receive_from(asio::buffer(m_buf, m_buf.size()), m_remote,

@@ -8,15 +8,24 @@
 #include "AMon.h"
 #include "asio.hpp"
 #include "pe_log.h"
+#include "libconfig/libconfig.h"
 
 #define DATAINTERVAL 5
 
 class CollectdReceiver: public Receiver
 {
 public:
-	static std::unique_ptr<CollectdReceiver> byConfig(asio::io_service &ioService, const char *typesdbfile, TaskQueue *taskq)
+	static std::unique_ptr<CollectdReceiver> byConfig(asio::io_service &ioService, TaskQueue *taskq, config_setting_t *config)
 	{
-		auto ret = std::unique_ptr<CollectdReceiver>(new CollectdReceiver(ioService));
+		if (!config)
+			PELOG_ERROR_RETURN((PLV_ERROR, "CollectdReceiver config missing\n"), NULL);
+		int port;
+		if (config_setting_lookup_int(config, "port", &port) == CONFIG_FALSE)
+			PELOG_ERROR_RETURN((PLV_ERROR, "CollectdReceiver port config missing\n"), NULL);
+		auto ret = std::unique_ptr<CollectdReceiver>(new CollectdReceiver(ioService, port));
+		const char *typesdbfile = NULL;
+		if (config_setting_lookup_string(config, "typesdbfile", &typesdbfile) == CONFIG_FALSE)
+			PELOG_ERROR_RETURN((PLV_ERROR, "CollectdReceiver typesdb config missing\n"), NULL);
 		if (ret->init(typesdbfile, taskq) != 0)
 			PELOG_ERROR_RETURN((PLV_ERROR, "CollectdReceiver init failed\n"), NULL);
 		return ret;
@@ -31,12 +40,13 @@ public:
 		ABSOLUTE = 3,
 	};
 private:
-	CollectdReceiver(asio::io_service &ioService):
-		m_ioService(ioService), m_buf(1452), m_socket(m_ioService, asio::ip::udp::v6()) { }
+	CollectdReceiver(asio::io_service &ioService, int port):
+		m_ioService(ioService), m_buf(1452), m_socket(m_ioService, asio::ip::udp::v6()), port(port) { }
 	int init(const char *typesdbfile, TaskQueue *taskq);
 	int parse(const uint8_t *data, size_t size, AMon *amon);
 private:
 	const char *m_name = "CollectdReceiver";
+	int port = 0;
 	asio::io_service &m_ioService;
 	asio::ip::udp::socket m_socket;
 	asio::ip::udp::endpoint m_remote;

@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include "AMon.h"
 #include "asio.hpp"
+#include "libconfig/libconfig.h"
 
 class VarBuf
 {
@@ -73,9 +74,12 @@ public:
 class GrafanaReader : public Reader
 {
 public:
-	static std::unique_ptr<GrafanaReader> byConfig(asio::io_service &ioService, TaskQueue *taskq)
+	static std::unique_ptr<GrafanaReader> byConfig(asio::io_service &ioService, TaskQueue *taskq, config_setting_t *config)
 	{
-		auto ret = std::unique_ptr<GrafanaReader>(new GrafanaReader(ioService, taskq));
+		int port;
+		if (config_setting_lookup_int(config, "port", &port) == CONFIG_FALSE)
+			PELOG_ERROR_RETURN((PLV_ERROR, "GrafanaReader port config missing\n"), NULL);
+		auto ret = std::unique_ptr<GrafanaReader>(new GrafanaReader(ioService, taskq, port));
 		return ret;
 	}
 	int start();
@@ -94,8 +98,8 @@ public:
 		bool recvshutdown = false;
 	};
 private:
-	GrafanaReader(asio::io_service &ioService, TaskQueue *taskq):
-		m_ioService(ioService), m_acceptor(ioService)/*, m_socket(ioService)*/ { this->taskq = taskq; }
+	GrafanaReader(asio::io_service &ioService, TaskQueue *taskq, int port):
+		m_ioService(ioService), m_acceptor(ioService), port(port) { this->taskq = taskq; }
 	void accept();
 	void recv(std::shared_ptr<GRTask> task);
 	int parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask);
@@ -103,7 +107,7 @@ private:
 	int response(std::shared_ptr<GRTask> grtask);
 private:
 	const char *m_name = "GrafanaReader";
-	int port = 23884;
+	int port = 0;
 	asio::io_service &m_ioService;
 	asio::ip::tcp::acceptor m_acceptor;
 //	asio::ip::tcp::socket m_socket;

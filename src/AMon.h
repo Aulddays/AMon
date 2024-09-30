@@ -152,12 +152,13 @@ protected:
 class AMon: public Worker
 {
 public:
+	AMon(const char *datadir): datadir(datadir) { }
 	int stop();
 	int start();
 	TaskQueue *gettaskq() { return &taskq; }
 	int addv(const char *name, uint32_t time, double value, StoreType type);
 private:
-	std::string datadir = "data";
+	std::string datadir;
 	TaskQueue taskq;
 	std::thread mainthrd;
 	std::unordered_map<std::string, std::unique_ptr<Alog>> data;
