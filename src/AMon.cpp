@@ -1,4 +1,6 @@
 #include "AMon.h"
+#include <math.h>
+#include <algorithm>
 
 int AMon::start()
 {
@@ -56,27 +58,24 @@ void AMon::mainproc()
 	PELOG_LOG((PLV_VERBOSE, "AMon job finished\n"));
 }
 
-int AMon::readdata(TaskRead *task)
+int AMon::readdata(TaskRead *task) const
 {
-	const int maxnum = 500;
-	task->end = std::max(task->start, task->end);
-	int step = (task->end - task->start) / maxnum;
-	step = step + 4 - (step + 4) % 5;
-	step = std::max(5, step);
-	task->start = task->start - task->start % step;
-	task->end = task->end - task->end % step;
-	task->datatime.clear();
-	task->databuf.clear();
-	for (uint32_t cur = task->start; cur <= task->end; cur += step)
-		task->datatime.push_back(cur);
-	for (size_t iname = 0; iname < task->name.size(); ++iname)
+	uint32_t curtime = time(NULL);
+	const int maxnum = 600;
+	task->step = Alog::getrangeparam(task->start, task->end, curtime, maxnum);
+	int datalen = (task->end - task->start) / task->step + 1;
+	task->datatime.resize(datalen);
+	task->databuf.resize(datalen * task->names.size());
+	for (uint32_t curtime = task->start, idx = 0; curtime <= task->end; curtime += task->step, ++idx)
+		task->datatime[idx] = curtime;
+	for (size_t iname = 0; iname < task->names.size(); ++iname)
 	{
-		for (uint32_t cur = task->start; cur <= task->end; cur += step)
-		{
-			uint64_t seed = cur * (iname + 1) % 10000;
-			seed = (seed + 39916801) * (seed + 65537) * (seed + 160001);
-			task->databuf.push_back(10 + seed % 1000 / 1000.0 - 5);
-		}
+		float *databuf = task->databuf.data() + iname * datalen;
+		const auto &idata = data.find(task->names[iname]);
+		if (idata != data.end())
+			idata->second->getrange(task->start, task->end, task->step, databuf);
+		else
+			std::for_each(databuf, databuf + datalen, [](float &d){ d = NAN; });
 	}
 	return 0;
 }

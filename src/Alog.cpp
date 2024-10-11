@@ -52,7 +52,7 @@ uint32_t lvmintime(uint32_t wtime, int32_t len, int32_t step)
 	return wtime < (uint32_t)(step * len - step) ? (wtime == 0 ? 0 : step) : wtime - (step * len) + step;
 }
 
-int32_t lv0pos(uint32_t time, uint32_t wtime, int32_t wpos, int32_t lvlen, int32_t lvstep)
+int32_t lvtimepos(uint32_t time, uint32_t wtime, int32_t wpos, int32_t lvlen, int32_t lvstep)
 {
 	assert(time <= wtime);
 	assert(time % lvstep == 0 && wtime % lvstep == 0);
@@ -69,6 +69,7 @@ int32_t lv0pos(uint32_t time, uint32_t wtime, int32_t wpos, int32_t lvlen, int32
 // return the smallest value that is >= val and is multiple of mul
 uint32_t roundup(uint32_t val, uint32_t mul)
 {
+	val = std::max(1u, val);
 	val = val + mul - 1;
 	return val - val % mul;
 }
@@ -279,7 +280,7 @@ int Alog::updatelevel(int level)
 	for (uint32_t curround = lrtime + lv[level].step; curround <= datatime - UPDELAY; curround += lv[level].step)
 	{
 		uint32_t btime0 = std::max(curround - lv[level].step + lv[0].step, mintime0);
-		int32_t bpos0 = lv0pos(btime0, lv[0].time, lv[0].pos, lv[0].len, lv[0].step);
+		int32_t bpos0 = lvtimepos(btime0, lv[0].time, lv[0].pos, lv[0].len, lv[0].step);
 		double aggrv = 0;
 		int32_t aggrc = 0;
 		if (bpos0 >= 0)
@@ -423,7 +424,7 @@ int32_t Alog::getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_
 	}
 	// determine the level to use
 	int level = 0;
-	for (level = 0; level < h.lvnum - 1; ++level)
+	for (level = 0; level < ALOG_DEF_LVNUM - 1; ++level)
 		if (cur - start <= (uint32_t)VPERIOD[level])
 			break;
 	// determine the step
@@ -435,7 +436,132 @@ int32_t Alog::getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_
 	return step;
 }
 
+int32_t gcd(int32_t a, int32_t b)
+{
+	while (b != 0)
+	{
+		int32_t n = a % b;
+		a = b;
+		b = n;
+	}
+	return a;
+}
+
 int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
 {
+	if (start > end || start % step != 0 || end % step != 0)
+		PELOG_ERROR_RETURN((PLV_WARNING, "Alog getrange param error\n"), -1);
+	// look for a matched level
+	int32_t level = -1;
+	for (level = h.lvnum - 1; level >= 0; --level)
+	{
+		if (lvmintime(lv[level].time, lv[level].len, lv[level].step) <= start && step % lv[level].step == 0)
+			break;
+	}
+	if (level < 0)	// if no perfectly suitible level found, look for an approximation
+	{
+		for (level = 0; level < h.lvnum - 1; ++level)	// look for the first level that covers the whole range
+			if (lv[level].time == 0 || lvmintime(lv[level].time, lv[level].len, lv[level].step) <= start)
+				break;
+		if (level > 0 && lv[level].time == 0)	// no data, use the one that has most data
+			level--;
+		else if (lv[level].step < step)	// look for the level with smaller step and largest gcd(step)
+		{
+			int32_t higcd = gcd(lv[level].step, step);
+			for (int32_t nowlevel = level + 1; nowlevel < h.lvnum && lv[nowlevel].step < step; nowlevel++)
+			{
+				int32_t nowgcd = gcd(lv[nowlevel].step, step);
+				if (nowgcd >= higcd)
+				{
+					level = nowlevel;
+					higcd = nowgcd;
+				}
+			}
+		}
+		// else: level.step >= step, just use level
+		else
+			;
+	}
+	// fill the data
+	uint32_t lvtime = lvmintime(lv[level].time, lv[level].len, lv[level].step);
+	int fillidx = 0;
+	// before earliest data
+	for (; start < lvtime && start < end; ++start, ++buf)
+		*buf = NAN;
+	// data within lv[level]
+	int lvpos = 0;
+	if (lvtime > 0 && lvtime <= end)
+	{
+		uint32_t startstep = start - start % lv[level].step;
+		assert(lvtime <= startstep);
+		lvtime = startstep;
+		if (lvtime <= lv[level].time)
+			lvpos = lvtimepos(lvtime, lv[level].time, lv[level].pos, lv[level].len, lv[level].step);
+	}
+	if (lv[level].step <= step)
+	{
+		for (; start <= lv[level].time && start <= end; start += step, ++buf)
+		{
+			float val = 0;
+			int cnt = 0;
+			for (; lvtime <= start; lvtime += lv[level].step, lvpos = (lvpos + 1) % lv[level].len)
+			{
+				float fval = level == 0 ? value0[lvpos] : store2raw(value[level][lvpos]);
+				if (!isnan(fval))
+				{
+					val += fval;
+					cnt++;
+				}
+			}
+			*buf = cnt > 0 ? val / cnt : NAN;
+		}
+	}
+	else
+	{
+		for (; lvtime <= lv[level].time && lvtime <= end; lvtime += lv[level].step, lvpos = (lvpos + 1) % lv[level].len)
+		{
+			float val = level == 0 ? value0[lvpos] : store2raw(value[level][lvpos]);
+			for (; start <= lvtime && start <= end; start += step, ++buf)
+				*buf = val;
+		}
+	}
+	// data not in lv[level] but in lv[0]
+	lvtime = lvmintime(lv[0].time, lv[0].len, lv[0].step);
+	if (level != 0 && start <= lv[0].time && lvtime <= end)
+	{
+		assert(lvtime <= start && lvtime > 0);
+		lvtime = start - start % lv[0].step;;
+		lvpos = lvtimepos(lvtime, lv[0].time, lv[0].pos, lv[0].len, lv[0].step);
+		if (lv[0].step <= step)
+		{
+			for (; start <= lv[0].time && start <= end; start += step, ++buf)
+			{
+				float val = 0;
+				int cnt = 0;
+				for (; lvtime <= start; lvtime += lv[0].step, lvpos = (lvpos + 1) % lv[0].len)
+				{
+					float fval = value0[lvpos];
+					if (!isnan(fval))
+					{
+						val += fval;
+						cnt++;
+					}
+				}
+				*buf = cnt > 0 ? val / cnt : NAN;
+			}
+		}
+		else
+		{
+			for (; lvtime <= lv[0].time && lvtime <= end; lvtime += lv[0].step, lvpos = (lvpos + 1) % lv[0].len)
+			{
+				float val = value0[lvpos];
+				for (; start <= lvtime && start <= end; start += step, ++buf)
+					*buf = val;
+			}
+		}
+	}
+	// unavailable new data
+	for (; start <= end; start += step, ++buf)
+		*buf = NAN;
 	return 0;
 }

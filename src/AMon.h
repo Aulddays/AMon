@@ -58,9 +58,9 @@ struct TaskRead: public Task
 	// request
 	uint32_t start = 0;
 	uint32_t end = 0;
-	std::vector<std::string> name;
+	std::vector<std::string> names;
 	// result
-	uint32_t step = 0;
+	int32_t step = 0;
 	std::vector<float> databuf;
 	std::vector<uint32_t> datatime;
 };
@@ -164,5 +164,5 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<Alog>> data;
 private:
 	void mainproc();
-	int readdata(TaskRead *task);
+	int readdata(TaskRead *task) const;
 };

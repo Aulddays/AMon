@@ -27,7 +27,7 @@ public:
 	void dump();
 
 	// obtain best fit [start, end] and step (return value), based on suggested [start, end], curtime, and lenth
-	int32_t getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len=600);
+	static int32_t getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len=600);
 	int getrange(uint32_t start, uint32_t end, int32_t step, float *buf);
 
 private:

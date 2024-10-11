@@ -82,7 +82,7 @@ void GrafanaReader::recv(std::shared_ptr<GRTask> task)
 int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 {
 	amontask->start = amontask->end = 0;
-	amontask->name.clear();
+	amontask->names.clear();
 	//fprintf(stderr, "toparse %s\n", grtask->buf.get());
 	if (strncmp(grtask->buf, "GET /amon", 9) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Invalid request1\n", m_name), -1);
@@ -122,17 +122,17 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 			for (const char *pt = p, *pte = strchr(pt, ','); true; pt = pte + 1, pte = strchr(pt, ','))
 			{
 				if (pte)
-					amontask->name.emplace_back(pt, pte);
+					amontask->names.emplace_back(pt, pte);
 				else
 				{
 					if (*pt)
-						amontask->name.emplace_back(pt);
+						amontask->names.emplace_back(pt);
 					break;
 				}
 			}
 		}
 	}
-	if (amontask->start <= 0 || amontask->end <= 0 || amontask->name.empty())
+	if (amontask->start <= 0 || amontask->end <= 0 || amontask->names.empty())
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Incomplete request\n", m_name), -1);
 	PELOG_LOG((PLV_INFO, "[%s] req %s (%u:%u)\n", m_name, names.c_str(), amontask->start, amontask->end));
 	return 0;
@@ -140,17 +140,21 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 
 int GrafanaReader::setresult(std::shared_ptr<GrafanaReader::GRTask> grtask, TaskRead *amontask)
 {
-	assert(amontask->datatime.size() * amontask->name.size() == amontask->databuf.size());
+	assert(amontask->datatime.size() * amontask->names.size() == amontask->databuf.size());
 	grtask->buf.clear();
 	grtask->buf.append("{\"values\":[\n");
 	for (size_t itime = 0; itime < amontask->datatime.size(); ++itime)
 	{
 		grtask->buf.printf(R"(%s{"time":%u)", itime == 0 ? "" : ",", amontask->datatime[itime]);
-		for (size_t ival = 0; ival < amontask->name.size(); ++ival)
-			grtask->buf.printf(R"( ,"val%d":%f)", (int)ival, amontask->databuf[ival * amontask->datatime.size() + itime]);
+		for (size_t ival = 0; ival < amontask->names.size(); ++ival)
+		{
+			float val = amontask->databuf[ival * amontask->datatime.size() + itime];
+			if (!isnan(val))
+				grtask->buf.printf(R"( ,"val%d":%f)", (int)ival, val);
+		}
 		grtask->buf.append("}\n");
 	}
-	grtask->buf.append("]}");
+	grtask->buf.append("]}\n");
 	m_ioService.post(std::bind(&GrafanaReader::response, this, grtask));
 	return 0;
 }
