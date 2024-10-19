@@ -50,6 +50,8 @@ void GrafanaReader::accept()
 
 void GrafanaReader::recv(std::shared_ptr<GRTask> task)
 {
+	if (task->buf.getlen() > 10240)
+		PELOG_ERROR_RETURNVOID((PLV_ERROR, "[%s] request too long\n", m_name));
 	if (task->buf.getfree() < 128)
 		task->buf.expand(std::max(task->buf.getlen() / 3, 128));
 	asio::async_read(task->socket,
@@ -63,7 +65,7 @@ void GrafanaReader::recv(std::shared_ptr<GRTask> task)
 //			if (task->buf.getlen() > 9 && task->buf.getlen() - len < 9 && strncmp(task->buf, "GET /amon", 9) != 0)
 //				PELOG_ERROR_RETURNVOID((PLV_ERROR, "[%s] Invalid request\n", m_name));
 			uint8_t *pos = (uint8_t *)memmem(task->buf, task->buf.getlen(), "\r\n\r\n", 4);
-			if (pos)
+			if (pos)	// request finished, make a task obj and send to task queue
 			{
 				*pos = 0;
 				std::unique_ptr<TaskRead> amontask = std::make_unique<TaskRead>();
@@ -83,6 +85,7 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 {
 	amontask->start = amontask->end = 0;
 	amontask->names.clear();
+	grtask->status = GRTask::GR_REQERR;
 	//fprintf(stderr, "toparse %s\n", grtask->buf.get());
 	if (strncmp(grtask->buf, "GET /amon", 9) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Invalid request1\n", m_name), -1);
@@ -134,27 +137,31 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 	}
 	if (amontask->start <= 0 || amontask->end <= 0 || amontask->names.empty())
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Incomplete request\n", m_name), -1);
+	grtask->status = GRTask::GR_OK;
 	PELOG_LOG((PLV_INFO, "[%s] req %s (%u:%u)\n", m_name, names.c_str(), amontask->start, amontask->end));
 	return 0;
 }
 
 int GrafanaReader::setresult(std::shared_ptr<GrafanaReader::GRTask> grtask, TaskRead *amontask)
 {
-	assert(amontask->datatime.size() * amontask->names.size() == amontask->databuf.size());
 	grtask->buf.clear();
-	grtask->buf.append("{\"values\":[\n");
-	for (size_t itime = 0; itime < amontask->datatime.size(); ++itime)
+	if (grtask->status == GRTask::GR_OK)
 	{
-		grtask->buf.printf(R"(%s{"time":%u)", itime == 0 ? "" : ",", amontask->datatime[itime]);
-		for (size_t ival = 0; ival < amontask->names.size(); ++ival)
+		assert(amontask->datatime.size() * amontask->names.size() == amontask->databuf.size());
+		grtask->buf.append("{\"values\":[\n");
+		for (size_t itime = 0; itime < amontask->datatime.size(); ++itime)
 		{
-			float val = amontask->databuf[ival * amontask->datatime.size() + itime];
-			if (!isnan(val))
-				grtask->buf.printf(R"( ,"val%d":%f)", (int)ival, val);
+			grtask->buf.printf(R"(%s{"time":%u)", itime == 0 ? "" : ",", amontask->datatime[itime]);
+			for (size_t ival = 0; ival < amontask->names.size(); ++ival)
+			{
+				float val = amontask->databuf[ival * amontask->datatime.size() + itime];
+				if (!isnan(val))
+					grtask->buf.printf(R"( ,"val%d":%f)", (int)ival, val);
+			}
+			grtask->buf.append("}\n");
 		}
-		grtask->buf.append("}\n");
+		grtask->buf.append("]}\n");
 	}
-	grtask->buf.append("]}\n");
 	m_ioService.post(std::bind(&GrafanaReader::response, this, grtask));
 	return 0;
 }
@@ -162,18 +169,25 @@ int GrafanaReader::setresult(std::shared_ptr<GrafanaReader::GRTask> grtask, Task
 int GrafanaReader::response(std::shared_ptr<GrafanaReader::GRTask> grtask)
 {
 	VarBuf header;
-	header.printf("HTTP/1.0 200 OK\r\ncontent-type: application/json; charset=utf-8\r\ncontent-length: %d\r\n\r\n", grtask->buf.getlen());
+	if (grtask->status == GRTask::GR_OK)
+		header.printf("HTTP/1.0 200 OK\r\ncontent-type: application/json; charset=utf-8\r\ncontent-length: %d\r\n\r\n", grtask->buf.getlen());
+	else
+		header.append("HTTP/1.0 404 \r\ncontent-length: 0\r\n\r\n");
 	int headerlen = header.getlen();
-	asio::async_write(grtask->socket, asio::buffer(header.get(), header.getlen()),
+	asio::async_write(grtask->socket, asio::buffer(header.get(), headerlen),
 		[this, grtask, headerlen](const asio::error_code &err, size_t len) {
 			if (err)
 				PELOG_ERROR_RETURNVOID((PLV_ERROR, "[%s] response header failed (%d:%s)\n", m_name, err.value(), err.message().c_str()));
 			assert((int)len == headerlen);
-			asio::async_write(grtask->socket, asio::buffer(grtask->buf.get(), grtask->buf.getlen()),
-				[this, grtask](const asio::error_code &err, size_t len) {
-					if (err)
-						PELOG_ERROR_RETURNVOID((PLV_ERROR, "[%s] response header failed (%d:%s)\n", m_name, err.value(), err.message().c_str()));
-	});});
+			if (grtask->status == GRTask::GR_OK && grtask->buf.getlen() > 0)
+			{
+				asio::async_write(grtask->socket, asio::buffer(grtask->buf.get(), grtask->buf.getlen()),
+					[this, grtask](const asio::error_code &err, size_t len) {
+						if (err)
+							PELOG_ERROR_RETURNVOID((PLV_ERROR, "[%s] response content failed (%d:%s)\n", m_name, err.value(), err.message().c_str()));
+						});
+			}
+	});
 	return 0;
 }
 

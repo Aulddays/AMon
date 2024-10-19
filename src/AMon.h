@@ -53,6 +53,7 @@ protected:
 struct TaskRead: public Task
 {
 	TaskRead() { type = TT_READ; }
+	// processors
 	std::function<int (TaskRead *)> parsereq;
 	std::function<int (TaskRead *)> response;
 	// request

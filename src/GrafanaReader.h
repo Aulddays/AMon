@@ -92,7 +92,8 @@ public:
 		GRTask(asio::io_service &ioService): socket(ioService), stime(time(NULL)) { }
 		~GRTask() { if (socket.is_open()) socket.close(); }
 		time_t stime;
-		enum { GR_RECV, GR_PROC, GR_SEND } state = GR_RECV;
+		//enum { GR_RECV, GR_PROC, GR_SEND } stage = GR_RECV;
+		enum { GR_OK, GR_REQERR } status = GR_OK;
 		asio::ip::tcp::socket socket;
 		VarBuf buf;
 		bool recvshutdown = false;

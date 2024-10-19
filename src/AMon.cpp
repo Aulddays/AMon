@@ -42,9 +42,10 @@ void AMon::mainproc()
 		case Task::TT_READ:
 		{
 			TaskRead *task = (TaskRead *)t.get();
-			if (task->parsereq(task) != 0)
+			int res = 0;
+			if ((res = task->parsereq(task)) != 0)
 				PELOG_LOG((PLV_WARNING, "AMon process read parsereq failed\n"));
-			if (readdata(task) != 0)
+			if (res == 0 && (res = readdata(task)) != 0)
 				PELOG_LOG((PLV_WARNING, "AMon process read failed\n"));
 			if (task->response(task) != 0)
 				PELOG_LOG((PLV_WARNING, "AMon process read response failed\n"));
