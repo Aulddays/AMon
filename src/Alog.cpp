@@ -99,7 +99,7 @@ int Alog::init(const char *dir, const char *logname, StoreType type)
 		AUint<12>::isnan,
 		[](uint16_t v) -> bool { return ::isnan(fp16_ieee_to_fp32_value(v)); },
 	};
-	uint16_t (*setnan_funcs[])() = {
+	static uint16_t (*setnan_funcs[])() = {
 		AUint<12>::fromnan,
 		[]() -> uint16_t { return fp16_ieee_from_fp32_value(NAN); },
 	};
@@ -107,10 +107,6 @@ int Alog::init(const char *dir, const char *logname, StoreType type)
 	inited = false;
 	name = logname;
 	filename = std::string(dir) + '/' + logname;
-	raw2store = raw2store_funcs[type];
-	store2raw = store2raw_funcs[type];
-	testnan = testnan_funcs[type];
-	setnan = setnan_funcs[type];
 	//value0.resize(VPERIOD[0] / VSTEP[0]);
 
 	// load from file
@@ -123,8 +119,12 @@ int Alog::init(const char *dir, const char *logname, StoreType type)
 		// read header
 		if (fread(&h, sizeof(h), 1, fp) != 1)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Load failed %s\n", filename.c_str()), -1);
-		if (type != h.stype)
+		if (type == AMON_NULL && (h.stype == AMON_AUINT || h.stype == AMON_FP16))
+			type = (StoreType)h.stype;
+		else if (type != h.stype)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Type not match %d:%d %s\n", type, h.stype, filename.c_str()), -1);
+		if (type == AMON_NULL)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid type for Alog %s\n", filename.c_str()), -1);
 		if (h.lvnum < 2 || h.lvnum > 20)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid level num %d %s\n", h.lvnum, filename.c_str()), -1);
 		// read level info
@@ -166,9 +166,12 @@ int Alog::init(const char *dir, const char *logname, StoreType type)
 			if ((int)fread(value[i].data(), sizeof(value[i][0]), lv[i].len, fp) != lv[i].len)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Load data failed %d %s\n", i, filename.c_str()), -1);
 		}
+		PELOG_LOG((PLV_INFO, "Loaded data %s\n", filename.c_str()));
 	}
 	else	// Datafile not found, init new
 	{
+		if (type == AMON_NULL)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Missing type for Alog %s\n", filename.c_str()), -1);
 		fp = fopen(filename.c_str(), "wb");
 		if (!fp)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Write failed %s\n", filename.c_str()), -1);
@@ -204,9 +207,14 @@ int Alog::init(const char *dir, const char *logname, StoreType type)
 			if ((int)fwrite(value[i].data(), sizeof(value[i][0]), lv[i].len, fp) != lv[i].len)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Load data failed %d %s\n", i, filename.c_str()), -1);
 		}
-
+		PELOG_LOG((PLV_INFO, "Inited data %s\n", filename.c_str()));
 	}
 	
+	raw2store = raw2store_funcs[type];
+	store2raw = store2raw_funcs[type];
+	testnan = testnan_funcs[type];
+	setnan = setnan_funcs[type];
+
 	writetime = (uint32_t)time(NULL);
 	writestep = lv[0].time;
 	pending.resize(h.lvnum);
@@ -484,19 +492,29 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
 	}
 	// fill the data
 	uint32_t lvtime = lvmintime(lv[level].time, lv[level].len, lv[level].step);
+	if (lvtime == 0)	// no data at all
+	{
+		assert(level == 0);
+		for (; start <= end; start += step, ++buf)
+			*buf = NAN;
+		return 0;
+	}
 	int fillidx = 0;
 	// before earliest data
-	for (; start < lvtime && start < end; ++start, ++buf)
+	for (; start < lvtime && start <= end; start += step, ++buf)
 		*buf = NAN;
 	// data within lv[level]
 	int lvpos = 0;
 	if (lvtime > 0 && lvtime <= end)
 	{
 		uint32_t startstep = start - start % lv[level].step;
-		assert(lvtime <= startstep);
+		assert(startstep >= lvtime && start - startstep < (uint32_t)step);
+		while (startstep >= lvtime + lv[level].step && start - (startstep - lv[level].step) < (uint32_t)step)
+			startstep -= lv[level].step;
+		// startstep is the smallest value that are >(start-step) && >= lvtime && matches lv[level].step
+		assert(lvtime <= startstep && startstep <= lv[level].time);
 		lvtime = startstep;
-		if (lvtime <= lv[level].time)
-			lvpos = lvtimepos(lvtime, lv[level].time, lv[level].pos, lv[level].len, lv[level].step);
+		lvpos = lvtimepos(lvtime, lv[level].time, lv[level].pos, lv[level].len, lv[level].step);
 	}
 	if (lv[level].step <= step)
 	{

@@ -58,7 +58,7 @@ void AMon::mainproc()
 	PELOG_LOG((PLV_VERBOSE, "AMon job finished\n"));
 }
 
-int AMon::readdata(TaskRead *task) const
+int AMon::readdata(TaskRead *task)
 {
 	uint32_t curtime = time(NULL);
 	const int maxnum = 600;
@@ -71,11 +71,20 @@ int AMon::readdata(TaskRead *task) const
 	for (size_t iname = 0; iname < task->names.size(); ++iname)
 	{
 		float *databuf = task->databuf.data() + iname * datalen;
-		const auto &idata = data.find(task->names[iname]);
+		auto idata = data.find(task->names[iname]);
+		if (idata == data.end())	// try load log data if not found in memory
+		{
+			std::unique_ptr<Alog> plog = std::make_unique<Alog>();
+			if(plog->init(datadir.c_str(), task->names[iname].c_str(), AMON_NULL) == 0)
+				idata = data.emplace(task->names[iname], std::move(plog)).first;
+		}
 		if (idata != data.end())
 			idata->second->getrange(task->start, task->end, task->step, databuf);
 		else
+		{
 			std::for_each(databuf, databuf + datalen, [](float &d){ d = NAN; });
+			PELOG_LOG((PLV_WARNING, "No data %s\n", task->names[iname].c_str()));
+		}
 	}
 	return 0;
 }

@@ -14,7 +14,7 @@
 
 // common defs
 #define AMON_MINSTEP 5
-enum StoreType { AMON_AUINT, AMON_FP16 };
+enum StoreType { AMON_NULL = -1, AMON_AUINT = 0, AMON_FP16 = 1 };
 class AMon;
 
 #include "Alog.h"
@@ -164,5 +164,5 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<Alog>> data;
 private:
 	void mainproc();
-	int readdata(TaskRead *task) const;
+	int readdata(TaskRead *task);
 };
