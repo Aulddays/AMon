@@ -58,8 +58,19 @@ struct TaskRead: public Task
 	std::function<int (TaskRead *)> response;
 	// request
 	uint32_t start = 0;
-	uint32_t end = 0;
+	uint32_t end = 0;	// end is exlusive
 	std::vector<std::string> names;
+	enum Aggr
+	{
+		AMON_NOAGGR = -1,
+		AMON_MIN = 0,
+		AMON_HOUR,
+		AMON_DAY,
+		AMON_WEEK,
+		AMON_MONTH,
+		AMON_YEAR,
+		AMON_AGGRNUM
+	} aggr = AMON_NOAGGR;
 	// result
 	int32_t step = 0;
 	std::vector<float> databuf;
@@ -165,5 +176,7 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<Alog>> data;
 private:
 	void mainproc();
-	int readdata(TaskRead *task);
+	int getdata(TaskRead *task);
+	int doread(TaskRead *task);
+	int doaggr(TaskRead *task);
 };

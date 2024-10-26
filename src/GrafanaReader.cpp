@@ -85,6 +85,7 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 {
 	amontask->start = amontask->end = 0;
 	amontask->names.clear();
+	amontask->aggr = TaskRead::AMON_NOAGGR;
 	grtask->status = GRTask::GR_REQERR;
 	//fprintf(stderr, "toparse %s\n", grtask->buf.get());
 	if (strncmp(grtask->buf, "GET /amon", 9) != 0)
@@ -134,7 +135,24 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 				}
 			}
 		}
-	}
+		else if (strncmp(p, "aggr=", 5) == 0)
+		{
+			p += 5;
+			constexpr const char *aggrnames[] = { "min", "hour", "day", "week", "month", "year" };
+			static_assert(sizeof(aggrnames) / sizeof(aggrnames[0]) == TaskRead::AMON_AGGRNUM, "aggrnames mismatch");
+			for (int i = 0; i < TaskRead::AMON_AGGRNUM; ++i)
+			{
+				if (strcmp(p, aggrnames[i]) == 0)
+				{
+					amontask->aggr = (TaskRead::Aggr)i;
+					break;
+				}
+			}
+			if (amontask->aggr == TaskRead::AMON_NOAGGR)
+				PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Invalid aggr type %s\n", m_name, p), -1);
+		}
+	}	// for (p = strtok_r(p, "&", &pe); p; p = strtok_r(NULL, "&", &pe))
+	// verification
 	if (amontask->start <= 0 || amontask->end <= 0 || amontask->names.empty())
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Incomplete request\n", m_name), -1);
 	grtask->status = GRTask::GR_OK;

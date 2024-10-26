@@ -27,8 +27,9 @@ public:
 	void dump();
 
 	// obtain best fit [start, end] and step (return value), based on suggested [start, end], curtime, and lenth
-	static int32_t getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len=600);
-	int getrange(uint32_t start, uint32_t end, int32_t step, float *buf);
+	static int32_t getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len=500);
+	int getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const;
+	int aggrrange(const std::vector<uint32_t> &ranges, float *buf) const;
 
 private:
 	int updatelevels() { for (int i = 1; i < h.lvnum; ++i) if (updatelevel(i) < 0) return -1; return 0; }

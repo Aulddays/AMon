@@ -422,7 +422,7 @@ void Alog::dump()
 }
 
 // obtain best fit [start, end] and step (return value), based on suggested [start, end], curtime, and lenth
-int32_t Alog::getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len/* = 600*/)
+int32_t Alog::getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len/* = 500*/)
 {
 	end = std::min(end, cur);
 	if (start >= end)
@@ -437,10 +437,10 @@ int32_t Alog::getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_
 			break;
 	// determine the step
 	int32_t step = VSTEP[level];
-	step = roundup((end - start + 1) / len, step);
+	step = roundup((end - start) / len, step);
 	// determine the real range
 	start = roundup(start, step);
-	end = std::max(start, end - end % step);
+	end = std::max(start + step, roundup(end, step));
 	return step;
 }
 
@@ -455,9 +455,9 @@ int32_t gcd(int32_t a, int32_t b)
 	return a;
 }
 
-int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
+int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const
 {
-	if (start > end || start % step != 0 || end % step != 0)
+	if (start >= end || start % step != 0 || end % step != 0)
 		PELOG_ERROR_RETURN((PLV_WARNING, "Alog getrange param error\n"), -1);
 	// look for a matched level
 	int32_t level = -1;
@@ -495,17 +495,17 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
 	if (lvtime == 0)	// no data at all
 	{
 		assert(level == 0);
-		for (; start <= end; start += step, ++buf)
+		for (; start < end; start += step, ++buf)
 			*buf = NAN;
 		return 0;
 	}
 	int fillidx = 0;
 	// before earliest data
-	for (; start < lvtime && start <= end; start += step, ++buf)
+	for (; start < lvtime && start < end; start += step, ++buf)
 		*buf = NAN;
 	// data within lv[level]
 	int lvpos = 0;
-	if (lvtime > 0 && lvtime <= end)
+	if (lvtime > 0 && lvtime < end)
 	{
 		uint32_t startstep = start - start % lv[level].step;
 		assert(startstep >= lvtime && start - startstep < (uint32_t)step);
@@ -518,7 +518,7 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
 	}
 	if (lv[level].step <= step)
 	{
-		for (; start <= lv[level].time && start <= end; start += step, ++buf)
+		for (; start <= lv[level].time && start < end; start += step, ++buf)
 		{
 			float val = 0;
 			int cnt = 0;
@@ -536,23 +536,23 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
 	}
 	else
 	{
-		for (; lvtime <= lv[level].time && lvtime <= end; lvtime += lv[level].step, lvpos = (lvpos + 1) % lv[level].len)
+		for (; lvtime <= lv[level].time && lvtime < end; lvtime += lv[level].step, lvpos = (lvpos + 1) % lv[level].len)
 		{
 			float val = level == 0 ? value0[lvpos] : store2raw(value[level][lvpos]);
-			for (; start <= lvtime && start <= end; start += step, ++buf)
+			for (; start <= lvtime && start < end; start += step, ++buf)
 				*buf = val;
 		}
 	}
 	// data not in lv[level] but in lv[0]
 	lvtime = lvmintime(lv[0].time, lv[0].len, lv[0].step);
-	if (level != 0 && start <= lv[0].time && lvtime <= end)
+	if (level != 0 && start <= lv[0].time && lvtime < end)
 	{
 		assert(lvtime <= start && lvtime > 0);
 		lvtime = start - start % lv[0].step;;
 		lvpos = lvtimepos(lvtime, lv[0].time, lv[0].pos, lv[0].len, lv[0].step);
 		if (lv[0].step <= step)
 		{
-			for (; start <= lv[0].time && start <= end; start += step, ++buf)
+			for (; start <= lv[0].time && start < end; start += step, ++buf)
 			{
 				float val = 0;
 				int cnt = 0;
@@ -570,16 +570,123 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf)
 		}
 		else
 		{
-			for (; lvtime <= lv[0].time && lvtime <= end; lvtime += lv[0].step, lvpos = (lvpos + 1) % lv[0].len)
+			for (; lvtime <= lv[0].time && lvtime < end; lvtime += lv[0].step, lvpos = (lvpos + 1) % lv[0].len)
 			{
 				float val = value0[lvpos];
-				for (; start <= lvtime && start <= end; start += step, ++buf)
+				for (; start <= lvtime && start < end; start += step, ++buf)
 					*buf = val;
 			}
 		}
 	}
 	// unavailable new data
-	for (; start <= end; start += step, ++buf)
+	for (; start < end; start += step, ++buf)
 		*buf = NAN;
 	return 0;
 }
+
+int Alog::aggrrange(const std::vector<uint32_t> &ranges, float *buf) const
+{
+	if (ranges.size() < 2 || lv[0].time == 0)
+		return 0;
+	// determine the level to use
+	int level = 0;
+	for (level = lv.size() - 1; level >= 0; --level)	// find the first level with appropriate step
+	{
+		if (lv[level].step <= (int)(ranges[1] - ranges[0]) && lv[level].time > 0)
+			break;
+	}
+	while (level < (int)lv.size() - 1 && lv[level].time > 0 && lvmintime(lv[level].time, lv[level].len, lv[level].step) > ranges[0])
+		level++;
+	if (lv[level].time == 0)
+		level--;
+	// calculate data
+	size_t ridx = 1;
+	uint32_t lvend = lvmintime(lv[level].time, lv[level].len, lv[level].step);
+	uint32_t lvbegin = lvend - lv[level].step;
+	int32_t lvpos = lvtimepos(lvend, lv[level].time, lv[level].pos, lv[level].len, lv[level].step);
+	assert(lvend != 0 && lvend > lvbegin);
+	// values before level data
+	for (; ridx < ranges.size() && ranges[ridx] <= lvbegin; ridx++, buf++)
+		*buf = 0;
+	// values within level
+	while (lvend <= ranges[ridx - 1] && lvend <= lv[level].time)	// locate the first value in level for range
+	{
+		lvbegin = lvend;
+		lvend += lv[level].step;
+		lvpos = lvpos < lv[level].len - 1 ? (lvpos + 1) : 0;
+	}
+	float rangeval = 0;
+	for (; ridx < ranges.size() && lvend <= lv[level].time; ridx++, buf++)
+	{
+		uint32_t rgbegin = ranges[ridx - 1];
+		uint32_t rgend = ranges[ridx];
+		while (true)
+		{
+			assert(lvbegin < rgend && rgbegin < lvend);
+			int covertime = std::min(lvend, rgend) - std::max(lvbegin, rgbegin);
+			assert(covertime > 0);
+			float stepval = level == 0 ? value0[lvpos] : store2raw(value[level][lvpos]);
+			if (!isnan(stepval))
+				rangeval += stepval * covertime;
+			if (lvend <= rgend)
+			{
+				lvbegin = lvend;
+				lvend += lv[level].step;
+				lvpos = lvpos < lv[level].len - 1 ? (lvpos + 1) : 0;
+				if (lvend > lv[level].time || lvbegin >= rgend)
+					break;
+			}
+			else
+				break;
+		}
+		if (lvend >= rgend)  // current level value go beyond current range, finish current range
+		{
+			assert(!isnan(rangeval));
+			*buf = rangeval;
+			rangeval = 0;
+			continue;
+		}
+		else	// current range is not finished but no more level values in range
+		{
+			assert(lvend > lv[level].time);
+			break;
+		}
+	}
+	// now we have finished level, keep going on level0
+	if (level != 0 && ridx < ranges.size() && lvend > lv[level].time && lvbegin + lv[0].step <= lv[0].time)
+	{
+		lvend = lvbegin + lv[0].step;
+		lvpos = lvtimepos(lvend, lv[0].time, lv[0].pos, lv[0].len, lv[0].step);
+		assert(lvpos >= 0);
+		for (; ridx < ranges.size() && lvend <= lv[0].time; ridx++, buf++)
+		{
+			uint32_t rgbegin = ranges[ridx - 1];
+			uint32_t rgend = ranges[ridx];
+			assert(rgbegin % lv[0].step == 0 && rgend % lv[0].step == 0);
+			assert(lvbegin < rgend && rgbegin < lvend);
+			while (lvend <= rgend && lvend <= lv[0].time)
+			{
+				if (!isnan(value0[lvpos]))
+					rangeval += value0[lvpos] * lv[0].step;
+				lvbegin = lvend;
+				lvend += lv[0].step;
+				lvpos = lvpos < lv[0].len - 1 ? (lvpos + 1) : 0;
+			}
+			assert(!isnan(rangeval));
+			*buf = rangeval;
+			rangeval = 0;
+		}
+	}
+	assert(!isnan(rangeval));
+	if (rangeval > 0)
+	{
+		assert(ridx < ranges.size());
+		*buf++ = rangeval;
+		ridx++;
+	}
+	// having done with all avaiable data, fill in the left ranges with 0
+	for (; ridx < ranges.size(); ridx++, buf++)
+		*buf = 0;
+	return 0;
+}
+
