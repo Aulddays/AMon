@@ -100,15 +100,15 @@ int AMon::doread(TaskRead *task)
 int AMon::doaggr(TaskRead *task)
 {
 	constexpr int32_t tzoff = 3600 * 8;	// Default TZ GMT+8
-	constexpr int32_t weekoff = 68400 * 3 + tzoff;	// 3 * 68400 + tzoff: first Sunday at TZ since epoch
+	constexpr int32_t weekoff = 86400 * 4 + tzoff;	// epoch is (86400 * 4(Thursday) + tzoff) in TZ
 	task->datatime.clear();
 	task->databuf.clear();
-	if (task->start < weekoff || task->end < task->start)
+	if (task->start < 86400 * 7 - weekoff || task->end < task->start)
 		return 0;
 	// fix the aggr level if not approperate
-	constexpr int32_t aggrsteps[] = { 60, 3600, 86400, 86400 * 7, 86400 * 30, 86400 * 365 };
+	static constexpr int32_t aggrsteps[] = { 60, 3600, 86400, 86400 * 7, 86400 * 30, 86400 * 365 };
 	static_assert(TaskRead::AMON_AGGRNUM == sizeof(aggrsteps) / sizeof(aggrsteps[0]), "aggrsteps not match");
-	constexpr int MAXRAGES = 200;
+	constexpr int MAXRAGES = 90;
 	for (; task->aggr < TaskRead::AMON_AGGRNUM; task->aggr = (TaskRead::Aggr)(task->aggr + 1))
 	{
 		if ((task->end - task->start) / aggrsteps[task->aggr] <= MAXRAGES)
@@ -119,10 +119,10 @@ int AMon::doaggr(TaskRead *task)
 	// fill datatime
 	if (task->aggr <= TaskRead::AMON_WEEK)
 	{
-		int32_t aggroffs[] = { 0, 0, tzoff,  weekoff };
+		static constexpr int32_t aggroffs[] = { 0, 0, tzoff,  weekoff };
 		static_assert(TaskRead::AMON_WEEK + 1 == sizeof(aggroffs) / sizeof(aggroffs[0]), "aggroffs not match");
 		int32_t step = aggrsteps[task->aggr];
-		task->start = task->start - (task->start - aggroffs[task->aggr]) % step + tzoff;
+		task->start -= (task->start + aggroffs[task->aggr]) % step;
 		for (uint32_t cur = task->start; true; cur += step)
 		{
 			task->datatime.push_back(cur);
@@ -132,10 +132,10 @@ int AMon::doaggr(TaskRead *task)
 	}
 	else if (task->aggr == TaskRead::AMON_MONTH || task->aggr == TaskRead::AMON_YEAR)
 	{
-		task->start = task->start - (task->start - tzoff) % 86400 + tzoff;
-		time_t time = task->start + tzoff;
+		task->start -= (task->start + tzoff) % 86400;
+		time_t timeshift = task->start + tzoff;
 		struct tm stm;
-		gmtime_r(&time, &stm);
+		gmtime_r(&timeshift, &stm);
 		assert(stm.tm_hour == 0 && stm.tm_min == 0 && stm.tm_sec == 0);
 		int year = 1900 + stm.tm_year;
 		int month = stm.tm_mon;
@@ -148,7 +148,7 @@ int AMon::doaggr(TaskRead *task)
 			bool isleap = year % 4 == 0 && year % 100 != 0 || year % 400 == 0;
 			if (task->aggr == TaskRead::AMON_MONTH)
 			{
-				uint32_t mdays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+				static constexpr uint32_t mdays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 				int step = mdays[month] + (isleap && month == 1 ? 1 : 0);
 				cur += step * 86400;
 				month += 1;
