@@ -628,18 +628,18 @@ int Alog::aggrrange(const std::vector<uint32_t> &ranges, float *buf) const
 			float stepval = level == 0 ? value0[lvpos] : store2raw(value[level][lvpos]);
 			if (!isnan(stepval))
 				rangeval += stepval * covertime;
-			if (lvend <= rgend)
+			if (lvend <= rgend)	// range covers all current value, go to next value in level
 			{
 				lvbegin = lvend;
 				lvend += lv[level].step;
 				lvpos = lvpos < lv[level].len - 1 ? (lvpos + 1) : 0;
-				if (lvend > lv[level].time || lvbegin >= rgend)
+				if (lvend > lv[level].time || lvbegin >= rgend)	// no more values or range finished
 					break;
 			}
-			else
+			else	// current value goes beyond range
 				break;
 		}
-		if (lvend >= rgend)  // current level value go beyond current range, finish current range
+		if (lvend <= lv[level].time && lvend >= rgend || lvend > lv[level].time && lvbegin >= rgend)  // current level value go beyond current range, finish current range
 		{
 			assert(!isnan(rangeval));
 			*buf = rangeval;
@@ -653,7 +653,8 @@ int Alog::aggrrange(const std::vector<uint32_t> &ranges, float *buf) const
 		}
 	}
 	// now we have finished level, keep going on level0
-	if (level != 0 && ridx < ranges.size() && lvend > lv[level].time && lvbegin + lv[0].step <= lv[0].time)
+	if (level != 0 && ridx < ranges.size() && lvend > lv[level].time && lvbegin + lv[0].step <= lv[0].time &&
+		lvbegin + lv[0].step >= lvmintime(lv[0].time, lv[0].len, lv[0].step))
 	{
 		lvend = lvbegin + lv[0].step;
 		lvpos = lvtimepos(lvend, lv[0].time, lv[0].pos, lv[0].len, lv[0].step);
