@@ -159,6 +159,9 @@ int CollectdReceiver::parse(const uint8_t *data, size_t size, AMon *amon)
 		{
 		case TYPE_HOST:
 			rec.host = parsestring(pdata, pdatalen);
+			for (char &c: rec.host)	// remove '.' in hostname
+				if (c == '.')
+					c = '_';
 //			PELOG_LOG((PLV_INFO, "parse host: %s\n", rec.host.c_str()));
 			break;
 		case TYPE_PLUGIN:
@@ -362,6 +365,8 @@ int CollectdReceiver::process(struct CollectdRec &rec, AMon *amon)
 	{
 	   rec.values.resize(1);
 	   typedb.resize(1);
+	   rec.values[0] *= 100;	// map load by 100*
+	   rec.type = "load100";
 	}
 	if (rec.plugin == "cpu" && rec.type == "percent" && rec.subtype == "idle" ||
 		rec.plugin == "memory" && rec.type == "percent" && rec.subtype == "free")

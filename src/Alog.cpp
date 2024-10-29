@@ -203,7 +203,7 @@ int Alog::init(const char *dir, const char *logname, StoreType type)
 		value.resize(h.lvnum);
 		for (int i = 1; i < h.lvnum; ++i)
 		{
-			value[i].resize(lv[i].len, setnan());
+			value[i].resize(lv[i].len, setnan_funcs[type]());
 			if ((int)fwrite(value[i].data(), sizeof(value[i][0]), lv[i].len, fp) != lv[i].len)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Load data failed %d %s\n", i, filename.c_str()), -1);
 		}
@@ -463,7 +463,7 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const
 	int32_t level = -1;
 	for (level = h.lvnum - 1; level >= 0; --level)
 	{
-		if (lvmintime(lv[level].time, lv[level].len, lv[level].step) <= start && step % lv[level].step == 0)
+		if (lv[level].time > 0 && lvmintime(lv[level].time, lv[level].len, lv[level].step) <= start && step % lv[level].step == 0)
 			break;
 	}
 	if (level < 0)	// if no perfectly suitible level found, look for an approximation
@@ -473,7 +473,9 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const
 				break;
 		if (level > 0 && lv[level].time == 0)	// no data, use the one that has most data
 			level--;
-		else if (lv[level].step < step)	// look for the level with smaller step and largest gcd(step)
+		else if (lv[level].time == 0)	// no data at all
+			;
+		else if (lv[level].step < step) // look for the level with smaller step and largest gcd(step)
 		{
 			int32_t higcd = gcd(lv[level].step, step);
 			for (int32_t nowlevel = level + 1; nowlevel < h.lvnum && lv[nowlevel].step < step; nowlevel++)
