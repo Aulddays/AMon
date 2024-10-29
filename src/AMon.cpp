@@ -87,7 +87,21 @@ int AMon::doread(TaskRead *task)
 				idata = data.emplace(task->names[iname], std::move(plog)).first;
 		}
 		if (idata != data.end())
+		{
 			idata->second->getrange(task->start, task->end, task->step, databuf);
+			if (task->aggr == TaskRead::AMON_CURRENT)	// fill recent values if missing
+			{
+				for (int idx = datalen - 1; idx >= 0; --idx)
+				{
+					if (!isnan(databuf[idx]))
+					{
+						for (int fidx = idx + 1; fidx < datalen; ++fidx)
+							databuf[fidx] = databuf[idx];
+						break;
+					}
+				}
+			}
+		}
 		else
 		{
 			std::for_each(databuf, databuf + datalen, [](float &d){ d = NAN; });

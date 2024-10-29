@@ -148,10 +148,17 @@ int GrafanaReader::parsereq(std::shared_ptr<GRTask> grtask, TaskRead *amontask)
 					break;
 				}
 			}
+			if (strcmp(p, "current") == 0)
+				amontask->aggr = TaskRead::AMON_CURRENT;
 			if (amontask->aggr == TaskRead::AMON_NOAGGR)
 				PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Invalid aggr type %s\n", m_name, p), -1);
 		}
 	}	// for (p = strtok_r(p, "&", &pe); p; p = strtok_r(NULL, "&", &pe))
+	if (amontask->aggr == TaskRead::AMON_CURRENT)
+	{
+		amontask->end = time(NULL) - AMON_MINSTEP;
+		amontask->start = amontask->end - 60 * 2;
+	}
 	// verification
 	if (amontask->start <= 0 || amontask->end <= 0 || amontask->names.empty())
 		PELOG_ERROR_RETURN((PLV_ERROR, "[%s] Incomplete request\n", m_name), -1);

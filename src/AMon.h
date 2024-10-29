@@ -69,7 +69,8 @@ struct TaskRead: public Task
 		AMON_WEEK,
 		AMON_MONTH,
 		AMON_YEAR,
-		AMON_AGGRNUM
+		AMON_AGGRNUM,
+		AMON_CURRENT,
 	} aggr = AMON_NOAGGR;
 	// result
 	int32_t step = 0;
