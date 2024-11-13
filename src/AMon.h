@@ -33,6 +33,7 @@ struct Task
 	virtual ~Task() { /*fprintf(stderr, "dtor Task %p\n", this);*/ }
 };
 // write task
+#pragma warning(disable : 4200)
 struct TaskWrite: public Task
 {
 	std::function<int (const uint8_t *data, size_t size, AMon *amon)> processor;
@@ -40,7 +41,7 @@ struct TaskWrite: public Task
 	uint8_t data[];
 	static std::unique_ptr<TaskWrite> alloc(size_t dsize)
 	{
-		TaskWrite *p = (TaskWrite *)operator new(sizeof(TaskWrite) + sizeof(uint8_t[dsize]));
+		TaskWrite *p = (TaskWrite *)operator new(sizeof(TaskWrite) + sizeof(TaskWrite::data[0]) * dsize);
 		new(p) TaskWrite();
 		p->dsize = dsize;
 		return std::unique_ptr<TaskWrite>(p);
@@ -77,7 +78,7 @@ struct TaskRead: public Task
 	std::vector<float> databuf;
 	std::vector<uint32_t> datatime;
 };
-#ifndef __cpp_lib_make_unique
+#if !defined(__cpp_lib_make_unique) && !defined(_MSC_VER)
 namespace std
 {
 template<typename T, typename... Args>
