@@ -514,9 +514,10 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const
 		while (startstep >= lvtime + lv[level].step && start - (startstep - lv[level].step) < (uint32_t)step)
 			startstep -= lv[level].step;
 		// startstep is the smallest value that are >(start-step) && >= lvtime && matches lv[level].step
-		assert(lvtime <= startstep && startstep <= lv[level].time);
+		assert(lvtime <= startstep);
 		lvtime = startstep;
-		lvpos = lvtimepos(lvtime, lv[level].time, lv[level].pos, lv[level].len, lv[level].step);
+		if (startstep <= lv[level].time)
+			lvpos = lvtimepos(lvtime, lv[level].time, lv[level].pos, lv[level].len, lv[level].step);
 	}
 	if (lv[level].step <= step)
 	{
