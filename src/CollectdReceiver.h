@@ -12,6 +12,10 @@
 
 #define DATAINTERVAL 5
 
+#ifdef _MSC_VER
+#	undef ABSOLUTE
+#endif
+
 class CollectdReceiver: public Receiver
 {
 public:

@@ -71,6 +71,8 @@ int AMon::doread(TaskRead *task)
 	uint32_t curtime = time(NULL);
 	const int maxnum = 500;
 	task->step = Alog::getrangeparam(task->start, task->end, curtime, maxnum);
+	if (task->step == 0)	// start >= end, no valid data range
+		return 0;
 	int datalen = (task->end - task->start) / task->step;
 	task->datatime.resize(datalen);
 	task->databuf.resize(datalen * task->names.size());

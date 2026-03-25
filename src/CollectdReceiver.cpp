@@ -73,7 +73,7 @@ uint64_t fmttime(time_t time)
 // helper parsers
 std::string parsestring(const uint8_t *data, uint16_t len)
 {
-	if (data[len] == 0)
+	if (len > 0 && data[len - 1] == 0)
 		return (const char *)data;
 	return std::string((const char *)data, len); 
 }

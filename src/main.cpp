@@ -59,7 +59,7 @@ int main(int argc, char **argv)
 	signal(SIGINT, sighdl);
 	signal(SIGTERM, sighdl);
 	signal(SIGABRT, sighdl);
-	signal(SIGUSR1, sighdl);
+	//signal(SIGUSR1, sighdl);
 	signal(SIGHUP, SIG_IGN);
 
 	ioService.run();

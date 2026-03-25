@@ -49,6 +49,7 @@ uint32_t roundtime(uint32_t steptime, int32_t step)
 
 uint32_t lvmintime(uint32_t wtime, int32_t len, int32_t step)
 {
+	// int32_t is large enough for time values, so the multiply is safe
 	return wtime < (uint32_t)(step * len - step) ? (wtime == 0 ? 0 : step) : wtime - (step * len) + step;
 }
 
@@ -265,7 +266,10 @@ int Alog::addv(uint32_t time, double value)
 		updatelevels();
 	}
 	else if (lv[0].time > 0)	// if got a history value, also expand pending num
+	{
 		pending[0] = std::max(pending[0], (int32_t)(lv[0].time - time) / lv[0].step);
+		ispending = true;
+	}
 	// write to file
 	if (ispending && updatefile() != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Alog write data failed %s\n", name.c_str()), -1);
@@ -328,6 +332,7 @@ int Alog::updatelevel(int level)
 				if (fwrite(&value[level][orilen], sizeof(value[level][0]), expandlen, fp) != expandlen)
 					PELOG_ERROR_RETURN((PLV_ERROR, "Expand data file failed %d %s\n", (int)expandlen, filename.c_str()), -1);
 				lv[level].len += expandlen;
+				// level info will be written in updatefile(). datafile integrity is still OK before that.
 			}
 		}
 		pending[level]++;
@@ -421,7 +426,7 @@ void Alog::dump()
 	}
 }
 
-// obtain best fit [start, end] and step (return value), based on suggested [start, end], curtime, and lenth
+// obtain best fit [start, end) and step (return value), based on suggested [start, end), curtime, and lenth
 int32_t Alog::getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len/* = 500*/)
 {
 	end = std::min(end, cur);
@@ -587,6 +592,8 @@ int Alog::getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const
 	return 0;
 }
 
+// obtain aggregated (sum(stepval*steptime)) values of given time ranges: [ranges[i], ranges[i+1]) -> buf[i]. buf should have been pre-allocated for ranges.
+// Unlike getrange(), ranges in aggrrange() can be of different lengths, to support monthly/yearly aggregation
 int Alog::aggrrange(const std::vector<uint32_t> &ranges, float *buf) const
 {
 	if (ranges.size() < 2 || lv[0].time == 0)
@@ -597,6 +604,14 @@ int Alog::aggrrange(const std::vector<uint32_t> &ranges, float *buf) const
 	{
 		if (lv[level].step <= (int)(ranges[1] - ranges[0]) && lv[level].time > 0)
 			break;
+	}
+	if (level < 0)
+	{
+		// Must be caused by all levels having step larger than range width.
+		// Usually this should have been avoided by the caller, fallback to level 0 just in case.
+		// The fallback will not cause troubles but just less precise results in some corner cases.
+		assert(lv[0].step > (int)(ranges[1] - ranges[0]));
+		level = 0;
 	}
 	while (level < (int)lv.size() - 1 && lv[level].time > 0 && lvmintime(lv[level].time, lv[level].len, lv[level].step) > ranges[0])
 		level++;
@@ -682,7 +697,7 @@ int Alog::aggrrange(const std::vector<uint32_t> &ranges, float *buf) const
 		}
 	}
 	assert(!isnan(rangeval));
-	if (rangeval > 0)
+	if (rangeval > 0)	// Aggregation should only be performed on positive values. Just drop the negatives.
 	{
 		assert(ridx < ranges.size());
 		*buf++ = rangeval;

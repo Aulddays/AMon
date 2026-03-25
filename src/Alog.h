@@ -26,9 +26,12 @@ public:
 	int addv(uint32_t time, double value);
 	void dump();
 
-	// obtain best fit [start, end] and step (return value), based on suggested [start, end], curtime, and lenth
+	// obtain best fit [start, end) and step (return value), based on suggested [start, end), curtime, and lenth
 	static int32_t getrangeparam(uint32_t &start, uint32_t &end, uint32_t cur, int32_t len=500);
+	// obtain average values of given time ranges
 	int getrange(uint32_t start, uint32_t end, int32_t step, float *buf) const;
+	// obtain aggregated (sum(stepval*steptime)) values of given time ranges: [ranges[i], ranges[i+1]) -> buf[i]. buf should have been pre-allocated for ranges.
+	// Unlike getrange(), ranges in aggrrange() can be of different lengths, to support monthly/yearly aggregation
 	int aggrrange(const std::vector<uint32_t> &ranges, float *buf) const;
 
 private:
