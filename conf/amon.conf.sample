@@ -1,0 +1,26 @@
+general:
+{
+	loglevel = "DBG"
+
+	# log file and rotate settings
+	logfile = "/path/to/amon.log"
+	#logrotate_filesize_kb = 10000
+	#logrotate_history_num = 2
+	#loglinebuf = true
+
+	# path of the database
+	datadir = "data"
+}
+
+workers:
+{
+	CollectdReceiver:
+	{
+		typesdbfile = "conf/types.db"
+		port = 25727	# port to receive (udp)  message from collectd
+	}
+	GrafanaReader:
+	{
+		port = 25837	# HTTP service serving data in Grafana protocol
+	}
+}
