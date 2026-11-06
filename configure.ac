@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_INIT([AMon], [1.0], [amon@example.com])
-AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability foreign])
+AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability foreign subdir-objects])
 AC_CONFIG_SRCDIR([config.h.in])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])

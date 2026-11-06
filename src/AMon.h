@@ -11,6 +11,7 @@
 #include <vector>
 #include <unordered_map>
 #include "pe_log.h"
+#include <math.h>
 
 // common defs
 #define AMON_MINSTEP 5
